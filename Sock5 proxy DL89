@@ -1,0 +1,92 @@
+#!/bin/bash
+
+PORT=$(shuf -i 20000-65000 -n 1)
+USERNAME="user$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 6)"
+PASSWORD="$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)"
+INTERFACE=$(ip route get 1 | awk '{print $5; exit}')
+
+if ! command -v danted &> /dev/null; then
+    echo "🛠️ Cài Dante SOCKS5..."
+    sudo apt update && sudo apt install -y dante-server curl nano
+fi
+
+cat <<EOF | sudo tee /etc/danted.conf > /dev/null
+logoutput: /var/log/sockd.log
+internal: 0.0.0.0 port = $PORT
+external: $INTERFACE
+method: username
+user.privileged: root
+user.notprivileged: nobody
+user.libwrap: nobody
+client pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    log: connect disconnect
+}
+socks pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    command: connect
+    log: connect disconnect
+}
+EOF
+
+sudo useradd -M -s /usr/sbin/nologin "$USERNAME"
+echo "$USERNAME:$PASSWORD" | sudo chpasswd
+
+if command -v ufw &>/dev/null; then
+    sudo ufw allow $PORT/tcp
+else
+    sudo iptables -C INPUT -p tcp --dport $PORT -j ACCEPT 2>/dev/null || \
+    sudo iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
+fi
+
+sudo touch /var/log/sockd.log
+sudo chown nobody:nogroup /var/log/sockd.log
+sudo systemctl restart danted
+sudo systemctl enable danted
+
+IP=$(curl -s https://api.ipify.org)
+
+echo "🧪 Đang kiểm tra hoạt động proxy..."
+sleep 2
+TEST=$(curl -x socks5h://$USERNAME:$PASSWORD@127.0.0.1:$PORT -s --max-time 5 https://api.myip.com)
+
+PROXY="$IP:$PORT:$USERNAME:$PASSWORD"
+
+if [[ $TEST == *"$IP"* ]]; then
+    echo
+    echo "✅ SOCKS5 Proxy đã sẵn sàng!"
+    echo "----------------------------"
+    echo "  IP      : $IP"
+    echo "  Port    : $PORT"
+    echo "  Username: $USERNAME"
+    echo "  Password: $PASSWORD"
+    echo "----------------------------"
+    echo "📌 Dạng: $PROXY"
+    echo "$PROXY" | sudo tee /root/socks5_proxy.txt > /dev/null
+else
+    echo "❌ Proxy không hoạt động. Kiểm tra lại cấu hình hoặc firewall."
+fi
+
+CHECK_SCRIPT="/usr/local/bin/check_socks5.sh"
+cat <<EOF | sudo tee $CHECK_SCRIPT > /dev/null
+#!/bin/bash
+HOST="$IP"
+PORT="$PORT"
+USER="$USERNAME"
+PASS="$PASSWORD"
+
+timeout 5 curl --socks5 \$USER:\$PASS@127.0.0.1:\$PORT https://ifconfig.me >/dev/null 2>&1
+
+if [ \$? -ne 0 ]; then
+  echo "[!] Proxy lỗi lúc \$(date). Đang restart danted..."
+  systemctl restart danted
+else
+  echo "[OK] Proxy hoạt động bình thường lúc \$(date)."
+fi
+EOF
+
+sudo chmod +x "$CHECK_SCRIPT"
+echo
+echo "[+] Script kiểm tra proxy đã tạo: $CHECK_SCRIPT"
+echo "[+] Gợi ý thêm cronjob kiểm tra mỗi 5 phút:"
+echo "    */5 * * * * root $CHECK_SCRIPT"
