@@ -1,24 +1,24 @@
 #!/bin/bash
 
-# ==== Cấu hình mặc định ====
-SOCKS5_PORT=443
-SOCKS5_USER="t1"
-SOCKS5_PASS="t2"
-
-# ==== Lấy IP và interface ====
+# Thông tin mặc định
+PORT=443
+USERNAME="t1"
+PASSWORD="t2"
+INTERFACE=$(ip route get 1 | awk '{print $5; exit}')
 IP=$(curl -s https://api.ipify.org)
-INTERFACE=$(ip route show default | awk '/default/ {print $5; exit}')
 
-echo "[+] Đang cài đặt SOCKS5 Proxy (Dante)..."
-
-# ==== Cài đặt Dante ====
+# Cài đặt gói cần thiết
 apt update
 apt install -y curl dante-server
 
-# ==== Cấu hình Dante ====
+# Tạo user
+useradd -M -s /usr/sbin/nologin "$USERNAME"
+echo "$USERNAME:$PASSWORD" | chpasswd
+
+# Tạo file cấu hình Dante
 cat <<EOF > /etc/danted.conf
 logoutput: /var/log/danted.log
-internal: 0.0.0.0 port = $SOCKS5_PORT
+internal: 0.0.0.0 port = $PORT
 external: $INTERFACE
 method: username
 socksmethod: username
@@ -38,22 +38,27 @@ socks pass {
 }
 EOF
 
-# ==== Tạo user đăng nhập ====
-useradd -M -s /usr/sbin/nologin "$SOCKS5_USER"
-echo "$SOCKS5_USER:$SOCKS5_PASS" | chpasswd
+# Mở port nếu dùng UFW
+if command -v ufw &> /dev/null; then
+  ufw allow $PORT/tcp
+else
+  iptables -C INPUT -p tcp --dport $PORT -j ACCEPT 2>/dev/null || \
+  iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
+fi
 
-# ==== Restart dịch vụ ====
+# Khởi động dịch vụ
 systemctl restart danted
 systemctl enable danted
 
-# ==== Kiểm tra proxy và lưu thông tin ====
-echo "$IP:$SOCKS5_PORT:$SOCKS5_USER:$SOCKS5_PASS" > /root/socks5_proxy.txt
-
-echo -e "\n✅ SOCKS5 Proxy đã sẵn sàng!"
-echo "---------------------------------------"
-echo " IP      : $IP"
-echo " Port    : $SOCKS5_PORT"
-echo " Username: $SOCKS5_USER"
-echo " Password: $SOCKS5_PASS"
-echo "---------------------------------------"
-echo "Đã lưu vào: /root/socks5_proxy.txt"
+# Hiển thị & lưu kết quả
+PROXY="$IP:$PORT:$USERNAME:$PASSWORD"
+echo
+echo "✅ SOCKS5 Proxy đã được cài đặt thành công!"
+echo "-------------------------------------------"
+echo "  IP      : $IP"
+echo "  Port    : $PORT"
+echo "  Username: $USERNAME"
+echo "  Password: $PASSWORD"
+echo "-------------------------------------------"
+echo "📌 Dạng đầy đủ để copy: $PROXY"
+echo "$PROXY" > /root/socks5_proxy.txt
