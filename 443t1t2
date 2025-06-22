@@ -1,21 +1,21 @@
 #!/bin/bash
 
-# Thông tin mặc định
+# Thiết lập thông tin mặc định
 PORT=443
 USERNAME="t1"
 PASSWORD="t2"
 INTERFACE=$(ip route get 1 | awk '{print $5; exit}')
 IP=$(curl -s https://api.ipify.org)
 
-# Cài đặt gói cần thiết
+# Cài gói cần thiết
 apt update
 apt install -y curl dante-server
 
-# Tạo user
+# Tạo user đăng nhập cho proxy
 useradd -M -s /usr/sbin/nologin "$USERNAME"
 echo "$USERNAME:$PASSWORD" | chpasswd
 
-# Tạo file cấu hình Dante
+# Tạo cấu hình danted
 cat <<EOF > /etc/danted.conf
 logoutput: /var/log/danted.log
 internal: 0.0.0.0 port = $PORT
@@ -38,27 +38,21 @@ socks pass {
 }
 EOF
 
-# Mở port nếu dùng UFW
-if command -v ufw &> /dev/null; then
+# Mở cổng nếu cần
+if command -v ufw &>/dev/null; then
   ufw allow $PORT/tcp
 else
   iptables -C INPUT -p tcp --dport $PORT -j ACCEPT 2>/dev/null || \
   iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
 fi
 
-# Khởi động dịch vụ
+# Khởi động lại dịch vụ
 systemctl restart danted
 systemctl enable danted
 
-# Hiển thị & lưu kết quả
+# Hiển thị và lưu proxy
 PROXY="$IP:$PORT:$USERNAME:$PASSWORD"
 echo
-echo "✅ SOCKS5 Proxy đã được cài đặt thành công!"
-echo "-------------------------------------------"
-echo "  IP      : $IP"
-echo "  Port    : $PORT"
-echo "  Username: $USERNAME"
-echo "  Password: $PASSWORD"
-echo "-------------------------------------------"
-echo "📌 Dạng đầy đủ để copy: $PROXY"
+echo "✅ SOCKS5 Proxy đã cài xong!"
+echo "📌 Proxy: $PROXY"
 echo "$PROXY" > /root/socks5_proxy.txt
