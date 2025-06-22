@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# ==== Cấu hình mặc định ====
+SOCKS5_PORT=443
+SOCKS5_USER="t1"
+SOCKS5_PASS="t2"
+
+# ==== Lấy IP và interface ====
+IP=$(curl -s https://api.ipify.org)
+INTERFACE=$(ip route show default | awk '/default/ {print $5; exit}')
+
+echo "[+] Đang cài đặt SOCKS5 Proxy (Dante)..."
+
+# ==== Cài đặt Dante ====
+apt update
+apt install -y curl dante-server
+
+# ==== Cấu hình Dante ====
+cat <<EOF > /etc/danted.conf
+logoutput: /var/log/danted.log
+internal: 0.0.0.0 port = $SOCKS5_PORT
+external: $INTERFACE
+method: username
+socksmethod: username
+user.privileged: root
+user.notprivileged: nobody
+user.libwrap: nobody
+
+client pass {
+  from: 0.0.0.0/0 to: 0.0.0.0/0
+  log: connect disconnect
+}
+
+socks pass {
+  from: 0.0.0.0/0 to: 0.0.0.0/0
+  command: connect
+  log: connect disconnect
+}
+EOF
+
+# ==== Tạo user đăng nhập ====
+useradd -M -s /usr/sbin/nologin "$SOCKS5_USER"
+echo "$SOCKS5_USER:$SOCKS5_PASS" | chpasswd
+
+# ==== Restart dịch vụ ====
+systemctl restart danted
+systemctl enable danted
+
+# ==== Kiểm tra proxy và lưu thông tin ====
+echo "$IP:$SOCKS5_PORT:$SOCKS5_USER:$SOCKS5_PASS" > /root/socks5_proxy.txt
+
+echo -e "\n✅ SOCKS5 Proxy đã sẵn sàng!"
+echo "---------------------------------------"
+echo " IP      : $IP"
+echo " Port    : $SOCKS5_PORT"
+echo " Username: $SOCKS5_USER"
+echo " Password: $SOCKS5_PASS"
+echo "---------------------------------------"
+echo "Đã lưu vào: /root/socks5_proxy.txt"
