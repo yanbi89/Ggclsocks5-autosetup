@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# ⚙️ Cổng mặc định 443
+# ⚙️ Port
 PORT=443
 
 # 🔐 Tạo user và password ngẫu nhiên
@@ -104,3 +104,10 @@ else
   echo "[OK] Proxy hoạt động bình thường lúc \$(date)."
 fi
 EOF
+
+sudo chmod +x "$CHECK_SCRIPT"
+
+echo
+echo "[+] Script kiểm tra proxy đã tạo: $CHECK_SCRIPT"
+echo "[+] Gợi ý thêm cronjob kiểm tra mỗi 5 phút:"
+echo "    */5 * * * * root $CHECK_SCRIPT"
