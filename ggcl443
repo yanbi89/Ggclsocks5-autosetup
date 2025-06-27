@@ -1,27 +1,38 @@
 #!/bin/bash
 
+# ⚙️ Cổng mặc định 443
 PORT=443
+
+# 🔐 Tạo user và password ngẫu nhiên
 USERNAME="user$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 6)"
 PASSWORD="$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)"
+
+# 🌐 Lấy interface mạng thực tế
 INTERFACE=$(ip route get 1 | awk '{print $5; exit}')
 
+# 🧱 Cài Dante nếu chưa có
 if ! command -v danted &> /dev/null; then
     echo "🛠️ Cài Dante SOCKS5..."
     sudo apt update && sudo apt install -y dante-server curl nano
 fi
 
+# 🧾 Tạo cấu hình
 cat <<EOF | sudo tee /etc/danted.conf > /dev/null
 logoutput: /var/log/sockd.log
 internal: 0.0.0.0 port = $PORT
 external: $INTERFACE
+
 method: username
+
 user.privileged: root
 user.notprivileged: nobody
 user.libwrap: nobody
+
 client pass {
     from: 0.0.0.0/0 to: 0.0.0.0/0
     log: connect disconnect
 }
+
 socks pass {
     from: 0.0.0.0/0 to: 0.0.0.0/0
     command: connect
@@ -29,9 +40,11 @@ socks pass {
 }
 EOF
 
+# 👤 Tạo user SOCKS5
 sudo useradd -M -s /usr/sbin/nologin "$USERNAME"
 echo "$USERNAME:$PASSWORD" | sudo chpasswd
 
+# 🛡️ Mở port
 if command -v ufw &>/dev/null; then
     sudo ufw allow $PORT/tcp
 else
@@ -39,17 +52,23 @@ else
     sudo iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
 fi
 
+# 📜 Log file
 sudo touch /var/log/sockd.log
 sudo chown nobody:nogroup /var/log/sockd.log
+
+# 🔁 Restart & enable Dante
 sudo systemctl restart danted
 sudo systemctl enable danted
 
+# 🌍 Lấy IP công cộng
 IP=$(curl -s https://api.ipify.org)
 
+# 🧪 Kiểm tra hoạt động proxy
 echo "🧪 Đang kiểm tra hoạt động proxy..."
 sleep 2
 TEST=$(curl -x socks5h://$USERNAME:$PASSWORD@127.0.0.1:$PORT -s --max-time 5 https://api.myip.com)
 
+# ✅ Hoặc ❌ Hiển thị kết quả
 PROXY="$IP:$PORT:$USERNAME:$PASSWORD"
 
 if [[ $TEST == *"$IP"* ]]; then
@@ -67,6 +86,7 @@ else
     echo "❌ Proxy không hoạt động. Kiểm tra lại cấu hình hoặc firewall."
 fi
 
+# 🧪 Tạo script kiểm tra tự động
 CHECK_SCRIPT="/usr/local/bin/check_socks5.sh"
 cat <<EOF | sudo tee $CHECK_SCRIPT > /dev/null
 #!/bin/bash
@@ -84,9 +104,3 @@ else
   echo "[OK] Proxy hoạt động bình thường lúc \$(date)."
 fi
 EOF
-
-sudo chmod +x "$CHECK_SCRIPT"
-echo
-echo "[+] Script kiểm tra proxy đã tạo: $CHECK_SCRIPT"
-echo "[+] Gợi ý thêm cronjob kiểm tra mỗi 5 phút:"
-echo "    */5 * * * * root $CHECK_SCRIPT"
