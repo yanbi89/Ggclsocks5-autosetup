@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# ===== CẤU HÌNH =====
+PORT=443
+
+# Lấy interface mạng chính
+INTERFACE=$(ip route get 1 | awk '{print $5; exit}')
+IP=$(curl -s https://api.ipify.org)
+
+# ===== CÀI GÓI =====
+apt update
+apt install -y curl dante-server
+
+# ===== CẤU HÌNH DANTED (NO AUTH) =====
+cat <<EOF > /etc/danted.conf
+logoutput: /var/log/danted.log
+
+internal: 0.0.0.0 port = $PORT
+external: $INTERFACE
+
+# TẮT XÁC THỰC
+method: none
+socksmethod: none
+
+user.privileged: root
+user.notprivileged: nobody
+user.libwrap: nobody
+
+client pass {
+  from: 0.0.0.0/0 to: 0.0.0.0/0
+  log: connect disconnect
+}
+
+socks pass {
+  from: 0.0.0.0/0 to: 0.0.0.0/0
+  command: connect
+  log: connect disconnect
+}
+EOF
+
+# ===== MỞ CỔNG =====
+if command -v ufw &>/dev/null; then
+  ufw allow $PORT/tcp
+else
+  iptables -C INPUT -p tcp --dport $PORT -j ACCEPT 2>/dev/null || \
+  iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
+fi
+
+# ===== KHỞI ĐỘNG =====
+systemctl restart danted
+systemctl enable danted
+
+# ===== HIỂN THỊ PROXY =====
+PROXY="$IP:$PORT"
+echo
+echo "✅ SOCKS5 NO-AUTH đã cài xong!"
+echo "📌 Proxy (IP:PORT): $PROXY"
+echo "$PROXY" > /root/socks5_noauth_proxy.txt
