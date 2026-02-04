@@ -2,43 +2,37 @@
 
 # ===== CẤU HÌNH =====
 PORT=443
-
-# Lấy interface mạng chính
-INTERFACE=$(ip route get 1 | awk '{print $5; exit}')
 IP=$(curl -s https://api.ipify.org)
 
-# ===== CÀI GÓI =====
+# ===== CÀI ĐẶT =====
 apt update
-apt install -y curl dante-server
+apt install -y squid curl
 
-# ===== CẤU HÌNH DANTED (NO AUTH) =====
-cat <<EOF > /etc/danted.conf
-logoutput: /var/log/danted.log
+# ===== BACKUP CONFIG CŨ =====
+if [ -f /etc/squid/squid.conf ]; then
+  mv /etc/squid/squid.conf /etc/squid/squid.conf.bak
+fi
 
-internal: 0.0.0.0 port = $PORT
-external: $INTERFACE
+# ===== TẠO CONFIG NO-AUTH =====
+cat <<EOF > /etc/squid/squid.conf
+http_port $PORT
 
-# TẮT XÁC THỰC
-method: none
-socksmethod: none
+# Cho phép tất cả (NO AUTH)
+acl all src all
+http_access allow all
 
-user.privileged: root
-user.notprivileged: nobody
-user.libwrap: nobody
+# Ẩn header proxy
+via off
+forwarded_for off
+request_header_access All allow all
 
-client pass {
-  from: 0.0.0.0/0 to: 0.0.0.0/0
-  log: connect disconnect
-}
-
-socks pass {
-  from: 0.0.0.0/0 to: 0.0.0.0/0
-  command: connect
-  log: connect disconnect
-}
+# Tắt cache & log cho gọn
+cache deny all
+access_log none
+cache_log /dev/null
 EOF
 
-# ===== MỞ CỔNG =====
+# ===== MỞ PORT =====
 if command -v ufw &>/dev/null; then
   ufw allow $PORT/tcp
 else
@@ -47,12 +41,11 @@ else
 fi
 
 # ===== KHỞI ĐỘNG =====
-systemctl restart danted
-systemctl enable danted
+systemctl restart squid
+systemctl enable squid
 
-# ===== HIỂN THỊ PROXY =====
-PROXY="$IP:$PORT"
+# ===== HIỂN THỊ KẾT QUẢ =====
 echo
-echo "✅ SOCKS5 NO-AUTH đã cài xong!"
-echo "📌 Proxy (IP:PORT): $PROXY"
-echo "$PROXY" > /root/socks5_noauth_proxy.txt
+echo "✅ HTTP PROXY NO-AUTH đã cài xong!"
+echo "📌 Proxy (IP:PORT): $IP:$PORT"
+echo "$IP:$PORT" > /root/http_proxy_noauth.txt
